@@ -15,7 +15,7 @@ constexpr double batteryCapacity = 95000.0;
 double currentCharge1  = batteryCapacity;
 double currentCharge2  = batteryCapacity;
 double lastLoggedCharge1 = 0;
-double lasLoggedCharge2 = 0;
+double lastLoggedCharge2 = 0;
 
 
 // Output pins via driver
@@ -29,7 +29,7 @@ const int analogOutPin1 = 5;  // Analog output pin - direct output
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
 
 //calibration voltage measurement
-constexpr float voltBatteryRatio = 0.445509;
+constexpr float voltBatteryRatio = 0.0445509;
 constexpr long  milliBatteryVoltRange = aref / voltBatteryRatio  * 1000.0;
 
 //calibration shunt measurements
@@ -122,7 +122,7 @@ void setup() {
   analogWrite(analogOutPin1, 0);
   int16_t  x;
   EEPROM.get(0, x);
-  if ( x != 2345){
+  if ( x != 2346){
     Serial.print("Blanking EEPROM :");
     Serial.println(EEPROM.length());
     for (uint16_t i = 2 ; i < EEPROM.length() ; i++) {
@@ -130,56 +130,55 @@ void setup() {
     }
     x = 2345;
     EEPROM.put(0, x);
-  } else {
-    Serial.print("EEPROM ready length:");
-    Serial.println(EEPROM.length());
-    mask = EEPROM[2];
-    if (mask != 127 || mask != 255){
-      // first time start
-      mask = 255;
-      EEPROM[2] = mask;
-      dataAddress = 3;
-      timeCount = 0;
-      currentCharge1 = batteryCapacity;
-      currentCharge2  = batteryCapacity;
-      logCharge();
-    } else {
-        //need to find last entry where mask changes
-        byte start = EEPROM[2] & 128;
-        for (uint16_t i = 6 ; i < EEPROM.length() ; i+=3) {
-          if ((EEPROM[i] & 128) != start){
-              //change of flag found
-              dataAddress = i - 3;
-              timeCount =  EEPROM[dataAddress++] & 127;
-              currentCharge1 = EEPROM[dataAddress++] * 500;
-              currentCharge2 = EEPROM[dataAddress++] = currentCharge2 * 500.0;
-              lastLoggedCharge1 = currentCharge1;
-              lastLoggedCharge2 = currentCharge2;
-              break;
-          }
-        }
-        for (uint16_t i = 3 ; i < EEPROM.length() ; i+=3) {
-          Serial.print("h");
-          Serial.print(i/3);
-          Serial.print(":");
-          Serial.print(EEPROM[i]);
-          Serial.print(",");
-          Serial.print(EEPROM[i+1]);
-          Serial.print(",");
-          Serial.println(EEPROM[i+2]);
-
-        }
-        Serial.print("Resored values: addr: ");
-        Serial.print(dataAddress);
-        Serial.print("time: ");
-        Serial.print(timeCount);
-        Serial.print("c1: ");
-        Serial.print(currentCharge1);
-        Serial.print("c2: ");
-        Serial.println(currentCharge2);
-
-    }
   }
+  Serial.print("EEPROM ready length:");
+  Serial.println(EEPROM.length());
+  mask = EEPROM[2];
+  if (mask != 127 && mask != 255){
+    // first time start
+    mask = 255;
+    EEPROM[2] = mask;
+    dataAddress = 3;
+    timeCount = 0;
+    currentCharge1 = batteryCapacity;
+    currentCharge2  = batteryCapacity;
+    logCharge();
+  } else {
+      //need to find last entry where mask changes
+      byte start = EEPROM[2] & 128;
+      for (uint16_t i = 6 ; i < EEPROM.length() ; i+=3) {
+        if ((EEPROM[i] & 128) != start){
+            //change of flag found
+            dataAddress = i - 3;
+            timeCount =  EEPROM[dataAddress++] & 127;
+            currentCharge1 = EEPROM[dataAddress++] * 500;
+            currentCharge2 = EEPROM[dataAddress++] = currentCharge2 * 500.0;
+            lastLoggedCharge1 = currentCharge1;
+            lastLoggedCharge2 = currentCharge2;
+            break;
+        }
+      }
+  }
+  for (uint16_t i = 3 ; i < EEPROM.length()-3 ; i+=3) {
+    Serial.print("h");
+    Serial.print(i/3);
+    Serial.print(":");
+    Serial.print(EEPROM[i]);
+    Serial.print(",");
+    Serial.print(EEPROM[i+1]);
+    Serial.print(",");
+    Serial.println(EEPROM[i+2]);
+
+  }
+  Serial.print("Resored values: addr: ");
+  Serial.print(dataAddress);
+  Serial.print("time: ");
+  Serial.print(timeCount);
+  Serial.print("c1: ");
+  Serial.print(currentCharge1);
+  Serial.print("c2: ");
+  Serial.println(currentCharge2);
+
   delay(2000);
   analogWrite(analogOutPin1, 0);
   delay(2000);
@@ -232,15 +231,27 @@ void loop(){
   
     batteryVolts = scale(sensorTotal[4], milliBatteryVoltRange);
 
-    // When battery > 14.0 volts and there is some charge into the batteries
-    // assume max capacity has been reached
+    // When battery > 14.1 volts and capacity of battery 1 is less than capacity assume full charge
+    // has been reached. It is unlikely battery will be over 14.1 volts and 0.25 Ahrs has been used
+    // so should not trigger again until recharged
 
-    if (batteryVolts > 14000 && current1 < -2000 && current2 < -2000){
+    if (batteryVolts > 14100 && currentCharge1 <= batteryCapacity - 250 ){
       currentCharge1 = batteryCapacity;
       currentCharge2  = batteryCapacity;
+      logCharge();
     }
 
-    
+    // When battery < 12.0 volts and capacity of battery 1 is greater than 10000 (10Ahrs) then set charger to 0
+    // provided discharge current is not > 2 amps ie high discharge rate.
+    // It is unlikely battery will be less than 12.4 volts and has > 10 Ahrs charge so should not trigger again
+    // until discharged again.
+
+    if (batteryVolts < 12.0 && currentCharge1 > 10000 && current1 < 2000){
+      currentCharge1 = 0;
+      currentCharge2  = 0;
+      logCharge();
+    }
+
     currentMillis = millis();
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
@@ -251,6 +262,10 @@ void loop(){
 
     if (currentCharge2 > 1.0) {
       currentCharge2 -= ((double) current2 * (double) lapsedMillis /3600000.0);
+    }
+
+    if (abs(currentCharge1 - lastLoggedCharge1) > 0.5){
+       logCharge();
     }
 
     if (out1Status == 0){
@@ -296,7 +311,7 @@ void loop(){
     Serial.println(lapsedMillis);
 
     Serial.print("Charge: ");
-    Serial.print(outputValue);
+    Serial.println(outputValue);
 
     // print the results to the Serial Monitor:
     Serial.print("Bat1: ");
@@ -359,9 +374,9 @@ void logCharge(){
     mask ^= 128;
     EEPROM[2] = mask;
   }
-  EEPROM[dataAddress++] = mask | timeCount;
-  EEPROM[dataAddress++] = currentCharge1/500.0 + 0.25;
-  EEPROM[dataAddress++] = currentCharge2/500.0 + 0.25;
+  EEPROM[dataAddress++] = mask & timeCount;
+  EEPROM[dataAddress++] = byte(currentCharge1/500.0 + 0.25);
+  EEPROM[dataAddress++] = byte(currentCharge2/500.0 + 0.25);
   lastLoggedCharge1 = currentCharge1;
   lastLoggedCharge2 = currentCharge2;
 }
