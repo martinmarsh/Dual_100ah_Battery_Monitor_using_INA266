@@ -144,6 +144,7 @@ void setup() {
         if ((EEPROM[i] & 128) != start){
             //change of flag found
             dataAddress = i - 3;
+            mask =  EEPROM[dataAddress] | 127;
             timeCount =  EEPROM[dataAddress++] & 127;
             currentCharge1 = float(EEPROM[dataAddress++]) * 500.0;
             currentCharge2 = float(EEPROM[dataAddress++]) * 500.0;
