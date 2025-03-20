@@ -25,7 +25,7 @@ const int outPin3 = 8;
 // Analogue output pins
 const int analogOutPin1 = 5;  // Analog output pin - direct output 
 
-
+constexpr  int16_t  epromID = 2345;
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
 
 //calibration voltage measurement
@@ -122,13 +122,13 @@ void setup() {
   analogWrite(analogOutPin1, 0);
   int16_t  x;
   EEPROM.get(0, x);
-  if ( x != 2348){
+  if ( x != epromID){
       Serial.print("Blanking EEPROM :");
       Serial.println(EEPROM.length());
       for (uint16_t i = 2 ; i < EEPROM.length() ; i++) {
         EEPROM.write(i, 0);
       }
-      x = 2345;
+      x = epromID;
       EEPROM.put(0, x);
       mask = 255;
       EEPROM[2] = mask;
@@ -145,8 +145,8 @@ void setup() {
             //change of flag found
             dataAddress = i - 3;
             timeCount =  EEPROM[dataAddress++] & 127;
-            currentCharge1 = EEPROM[dataAddress++] * 500;
-            currentCharge2 = EEPROM[dataAddress++] = currentCharge2 * 500.0;
+            currentCharge1 = float(EEPROM[dataAddress++]) * 500.0;
+            currentCharge2 = float(EEPROM[dataAddress++]) * 500.0;
             lastLoggedCharge1 = currentCharge1;
             lastLoggedCharge2 = currentCharge2;
             break;
