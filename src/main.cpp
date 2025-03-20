@@ -122,27 +122,21 @@ void setup() {
   analogWrite(analogOutPin1, 0);
   int16_t  x;
   EEPROM.get(0, x);
-  if ( x != 2346){
-    Serial.print("Blanking EEPROM :");
-    Serial.println(EEPROM.length());
-    for (uint16_t i = 2 ; i < EEPROM.length() ; i++) {
-      EEPROM.write(i, 0);
-    }
-    x = 2345;
-    EEPROM.put(0, x);
-  }
-  Serial.print("EEPROM ready length:");
-  Serial.println(EEPROM.length());
-  mask = EEPROM[2];
-  if (mask != 127 && mask != 255){
-    // first time start
-    mask = 255;
-    EEPROM[2] = mask;
-    dataAddress = 3;
-    timeCount = 0;
-    currentCharge1 = batteryCapacity;
-    currentCharge2  = batteryCapacity;
-    logCharge();
+  if ( x != 2348){
+      Serial.print("Blanking EEPROM :");
+      Serial.println(EEPROM.length());
+      for (uint16_t i = 2 ; i < EEPROM.length() ; i++) {
+        EEPROM.write(i, 0);
+      }
+      x = 2345;
+      EEPROM.put(0, x);
+      mask = 255;
+      EEPROM[2] = mask;
+      dataAddress = 3;
+      timeCount = 0;
+      currentCharge1 = batteryCapacity;
+      currentCharge2  = batteryCapacity;
+      logCharge();
   } else {
       //need to find last entry where mask changes
       byte start = EEPROM[2] & 128;
@@ -201,18 +195,20 @@ void loop(){
     if (reZero > 100){
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
-      if ((totalCurrent1 < 330 and totalCurrent1 > -270) or  (totalCurrent2 < 330 and totalCurrent2 > -270) ){
-        offset1Lo = 0;
-        offset1Lo = getCurrent(1) - 30;
-        offset2Lo = 0;
-        offset2Lo = getCurrent(2) - 30;
+      if ((totalCurrent1 < 270 && totalCurrent1 > -240) || (totalCurrent2 < 270 && totalCurrent2 > -240) ){
+          if ((current1 < 400 && current1 > -400) || (current2 < 400 && current2 > -400) ){
+              offset1Lo = 0;
+              offset1Lo = getCurrent(1) - 30;
+              offset2Lo = 0;
+              offset2Lo = getCurrent(2) - 30;
+          }
       }
       totalCurrent1 = 0;
       totalCurrent2 = 0;
       reZero = 0;
       timeCount++;
       timeCount &= 127;
-      if (timeCount == 30 or timeCount == 90){
+      if (timeCount == 30 || timeCount == 90){
         logCharge();
       }
     }
@@ -235,7 +231,7 @@ void loop(){
     // has been reached. It is unlikely battery will be over 14.1 volts and 0.25 Ahrs has been used
     // so should not trigger again until recharged
 
-    if (batteryVolts > 14100 && currentCharge1 <= batteryCapacity - 250 ){
+    if (batteryVolts > 14100 && currentCharge1 <= (batteryCapacity - 250)){
       currentCharge1 = batteryCapacity;
       currentCharge2  = batteryCapacity;
       logCharge();
@@ -256,15 +252,15 @@ void loop(){
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
 
-    if (currentCharge1 > 1.0 ){
+    if (currentCharge1 > 1.0 && (current1 < 0 || currentCharge1 < batteryCapacity)){
       currentCharge1 -= ((double) current1 * (double) lapsedMillis /3600000.0);
     }
 
-    if (currentCharge2 > 1.0) {
+    if (currentCharge2 > 1.0 && (current1 < 0 || currentCharge1 < batteryCapacity)) {
       currentCharge2 -= ((double) current2 * (double) lapsedMillis /3600000.0);
     }
 
-    if (abs(currentCharge1 - lastLoggedCharge1) > 0.5){
+    if (fabs(currentCharge1 - lastLoggedCharge1) > 500.0){
        logCharge();
     }
 
@@ -304,25 +300,23 @@ void loop(){
     Serial.print(" = ");
     Serial.println(offset2Lo);
 
-    Serial.print(" Volts count ");
-    Serial.println(sensorTotal[4]);
-
     Serial.print("Millis: ");
-    Serial.println(lapsedMillis);
-
-    Serial.print("Charge: ");
+    Serial.print(lapsedMillis);
+    Serial.print(", Charge: ");
     Serial.println(outputValue);
 
     // print the results to the Serial Monitor:
-    Serial.print("Bat1: ");
+    Serial.print("time: ");
+    Serial.print(timeCount);
+    Serial.print(",B1: ");
     Serial.print(currentCharge1/1000.0);
-    Serial.print (" Bat2: ");
+    Serial.print (",B2: ");
     Serial.print(currentCharge2/1000.0);
-    Serial.print(", current1: ");
+    Serial.print(",C1: ");
     Serial.print(current1);
-    Serial.print(" current2: ");
+    Serial.print(",C2: ");
     Serial.print(current2);
-    Serial.print(", battery: ");
+    Serial.print(",V: ");
     Serial.println(batteryVolts); 
 }
 
@@ -374,7 +368,16 @@ void logCharge(){
     mask ^= 128;
     EEPROM[2] = mask;
   }
-  EEPROM[dataAddress++] = mask & timeCount;
+  Serial.print("log: mask:");
+  Serial.print(mask);
+  Serial.print(",time:");
+  Serial.print(timeCount);
+  Serial.print(",C1:");
+  Serial.print(currentCharge1);
+  Serial.print(",C2:");
+  Serial.println(currentCharge2);
+
+  EEPROM[dataAddress++] = (mask & 128) | timeCount;
   EEPROM[dataAddress++] = byte(currentCharge1/500.0 + 0.25);
   EEPROM[dataAddress++] = byte(currentCharge2/500.0 + 0.25);
   lastLoggedCharge1 = currentCharge1;
