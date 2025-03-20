@@ -241,22 +241,22 @@ void loop(){
     // provided discharge current is not > 2 amps ie high discharge rate.
     // It is unlikely battery will be less than 12.4 volts and has > 10 Ahrs charge so should not trigger again
     // until discharged again.
-
+    
     if (batteryVolts < 12.0 && currentCharge1 > 10000 && current1 < 2000){
       currentCharge1 = 0;
       currentCharge2  = 0;
       logCharge();
     }
-
+    
     currentMillis = millis();
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
 
-    if (currentCharge1 > 1.0 && (current1 < 0 || currentCharge1 < batteryCapacity)){
+    if (currentCharge1 > 1.0 && (current1 > 0 || currentCharge1 < batteryCapacity)){
       currentCharge1 -= ((double) current1 * (double) lapsedMillis /3600000.0);
     }
 
-    if (currentCharge2 > 1.0 && (current1 < 0 || currentCharge1 < batteryCapacity)) {
+    if (currentCharge2 > 1.0 && (current1 > 0 || currentCharge1 < batteryCapacity)) {
       currentCharge2 -= ((double) current2 * (double) lapsedMillis /3600000.0);
     }
 
