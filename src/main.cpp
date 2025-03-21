@@ -208,7 +208,7 @@ void loop(){
       currentMillis = millis();
       lapsedZeroMillis = currentMillis - previousZeroMillis;
       previousZeroMillis = currentMillis;
-      lapsed += lapsedZeroMillis/3600000;
+      lapsed += float(lapsedZeroMillis)/3600000.0;
 
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
@@ -220,8 +220,6 @@ void loop(){
               offset2Lo = getCurrent(2) - 30;
           }
       }
-      totalCurrent1 = 0;
-      totalCurrent2 = 0;
       reZero = 0;
       timeCount++;
       timeCount &= 127;
@@ -237,6 +235,9 @@ void loop(){
       Serial.print(offset1Lo);
       Serial.print(",offset2:");
       Serial.println(offset2Lo);
+      totalCurrent1 = 0;
+      totalCurrent2 = 0;
+ 
     
       if (timeCount == 30 || timeCount == 90){
         logCharge();
