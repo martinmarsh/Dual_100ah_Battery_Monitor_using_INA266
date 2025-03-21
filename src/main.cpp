@@ -283,12 +283,25 @@ void loop(){
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
 
+    double efficiency = 1.0;
+    if (current1 < 0){
+       current1 = current1*90/100;
+       efficiency = 0.92;
+    }
+
+    
     if (currentCharge1 > 1.0 && (current1 > 0 || currentCharge1 < batteryCapacity)){
-      currentCharge1 -= ((double) current1 * (double) lapsedMillis /3600000.0);
+      currentCharge1 -= ((double) current1 * efficiency * (double) lapsedMillis /3600000.0);
+    }
+
+    efficiency = 1.0;
+    if (current2 < 0){
+      current2 = current2*94/100;
+      efficiency = 0.92;
     }
 
     if (currentCharge2 > 1.0 && (current1 > 0 || currentCharge1 < batteryCapacity)) {
-      currentCharge2 -= ((double) current2 * (double) lapsedMillis /3600000.0);
+      currentCharge2 -= ((double) current2 * efficiency * (double) lapsedMillis /3600000.0);
     }
 
     if (fabs(currentCharge1 - lastLoggedCharge1) > 500.0){
@@ -403,6 +416,8 @@ void logCharge(){
   Serial.print(mask);
   Serial.print(",time:");
   Serial.print(timeCount);
+  Serial.print(",lapsed:");
+  Serial.print(lapsed);
   Serial.print(",C1:");
   Serial.print(currentCharge1);
   Serial.print(",C2:");
