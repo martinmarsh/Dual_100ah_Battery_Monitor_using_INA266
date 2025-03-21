@@ -25,7 +25,7 @@ const int outPin3 = 8;
 // Analogue output pins
 const int analogOutPin1 = 5;  // Analog output pin - direct output 
 
-constexpr  int16_t  epromID = 2345;
+constexpr  int16_t  epromID = 2346;
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
 
 //calibration voltage measurement
@@ -35,8 +35,8 @@ constexpr long  milliBatteryVoltRange = aref / voltBatteryRatio  * 1000.0;
 //calibration shunt measurements
 constexpr float milliVoltOffset1 = 16.15;       //milli volts offsets shunt 1 an 2
 constexpr float milliVoltOffset2 = 16.4;  
-constexpr float sensitivity1 = .6;   // milli volts per amp shunt 1
-constexpr float sensitivity2 = .6;
+constexpr float sensitivity1 = .65;   // milli volts per amp shunt 1
+constexpr float sensitivity2 = .65;
 
 constexpr float ampsOffset1 = milliVoltOffset1 / sensitivity1;
 constexpr float ampsOffset2 = milliVoltOffset2 / sensitivity2;
@@ -46,7 +46,7 @@ constexpr float secondStageGain = 4.0;  //Both amps are set to this
 constexpr float ampsFullScale1Hi = ampsOffset1 * aref / milliVoltOffset1 / firstStageGain * 1000.0;
 constexpr float ampsFullScale2Hi = ampsOffset2 * aref / milliVoltOffset2 / firstStageGain * 1000.0;
 
-//Total gain allows about -26A to about 62A 
+//Total gain allows about -24A to about 57A 
 constexpr float ampsFullScale1Lo = ampsOffset1 * aref / milliVoltOffset1 / (firstStageGain * secondStageGain) *1000.0;
 constexpr float ampsFullScale2Lo = ampsOffset1 * aref / milliVoltOffset1 / (firstStageGain * secondStageGain) *1000.0;
 
@@ -75,6 +75,10 @@ constexpr float count2lo = (float)milliAmpsOffset2Lo/(float)milliAmpsFullScale2L
 unsigned long  currentMillis = 0;
 unsigned long  previousMillis = 0;
 unsigned long  lapsedMillis = 0;
+unsigned long  previousZeroMillis = 0;
+unsigned long  lapsedZeroMillis = 0;
+double lapsed = 0.0;
+
 
 long batteryVolts = 0;
 
@@ -148,6 +152,12 @@ void setup() {
             timeCount =  EEPROM[dataAddress++] & 127;
             currentCharge1 = float(EEPROM[dataAddress++]) * 500.0;
             currentCharge2 = float(EEPROM[dataAddress++]) * 500.0;
+            if (currentCharge1 > batteryCapacity){
+              currentCharge1 = batteryCapacity;
+            }
+            if (currentCharge2 > batteryCapacity){
+              currentCharge2 = batteryCapacity;
+            }
             lastLoggedCharge1 = currentCharge1;
             lastLoggedCharge2 = currentCharge2;
             break;
@@ -188,12 +198,18 @@ void setup() {
   delay(1000);
   
   previousMillis = millis();
+  previousZeroMillis = previousMillis;
 }
 
 
 void loop(){
   
     if (reZero > 100){
+      currentMillis = millis();
+      lapsedZeroMillis = currentMillis - previousZeroMillis;
+      previousZeroMillis = currentMillis;
+      lapsed += lapsedZeroMillis/3600000;
+
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
       if ((totalCurrent1 < 270 && totalCurrent1 > -240) || (totalCurrent2 < 270 && totalCurrent2 > -240) ){
@@ -209,6 +225,19 @@ void loop(){
       reZero = 0;
       timeCount++;
       timeCount &= 127;
+      Serial.print("TP: ");
+      Serial.print(timeCount);
+      Serial.print(",lapsed:");
+      Serial.print(lapsed);
+      Serial.print(",TC1:");
+      Serial.print(totalCurrent1);
+      Serial.print(",TC2:");
+      Serial.print(totalCurrent2);
+      Serial.print(",offset1:");
+      Serial.print(offset1Lo);
+      Serial.print(",offset2:");
+      Serial.println(offset2Lo);
+    
       if (timeCount == 30 || timeCount == 90){
         logCharge();
       }
