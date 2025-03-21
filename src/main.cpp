@@ -259,10 +259,9 @@ void loop(){
     batteryVolts = scale(sensorTotal[4], milliBatteryVoltRange);
 
     // When battery > 14.1 volts and capacity of battery 1 is less than capacity assume full charge
-    // has been reached. It is unlikely battery will be over 14.1 volts and 0.25 Ahrs has been used
-    // so should not trigger again until recharged
+    // has been reached. 
 
-    if (batteryVolts > 14100 && currentCharge1 <= (batteryCapacity - 250)){
+    if (batteryVolts > 14100){
       currentCharge1 = batteryCapacity;
       currentCharge2  = batteryCapacity;
       logCharge();
@@ -270,10 +269,8 @@ void loop(){
 
     // When battery < 12.0 volts and capacity of battery 1 is greater than 10000 (10Ahrs) then set charger to 0
     // provided discharge current is not > 2 amps ie high discharge rate.
-    // It is unlikely battery will be less than 12.4 volts and has > 10 Ahrs charge so should not trigger again
-    // until discharged again.
     
-    if (batteryVolts < 12.0 && currentCharge1 > 10000 && current1 < 2000){
+    if (batteryVolts < 12.0){
       currentCharge1 = 0;
       currentCharge2  = 0;
       logCharge();
@@ -300,13 +297,14 @@ void loop(){
       efficiency = 0.92;
     }
 
-    if (currentCharge2 > 1.0 && (current1 > 0 || currentCharge1 < batteryCapacity)) {
+    if (currentCharge2 > 1.0 && (current2 > 0 || currentCharge2 < batteryCapacity)) {
       currentCharge2 -= ((double) current2 * efficiency * (double) lapsedMillis /3600000.0);
     }
 
-    if (fabs(currentCharge1 - lastLoggedCharge1) > 500.0){
+    if (fabs(currentCharge1 - lastLoggedCharge1) > 490.0){
        logCharge();
     }
+
 
     if (out1Status == 0){
       digitalWrite(outPin1, HIGH);
@@ -407,25 +405,27 @@ long getCurrent(int channel){
 }
 
 void logCharge(){
-  if(dataAddress > EEPROM.length() - 4){
-    dataAddress = 3;
-    mask ^= 128;
-    EEPROM[2] = mask;
-  }
-  Serial.print("log: mask:");
-  Serial.print(mask);
-  Serial.print(",time:");
-  Serial.print(timeCount);
-  Serial.print(",lapsed:");
-  Serial.print(lapsed);
-  Serial.print(",C1:");
-  Serial.print(currentCharge1);
-  Serial.print(",C2:");
-  Serial.println(currentCharge2);
+  if  (lastLoggedCharge1 != currentCharge1 || lastLoggedCharge2 != currentCharge2){
+    if(dataAddress > EEPROM.length() - 4){
+      dataAddress = 3;
+      mask ^= 128;
+      EEPROM[2] = mask;
+    }
+    Serial.print("log: mask:");
+    Serial.print(mask);
+    Serial.print(",time:");
+    Serial.print(timeCount);
+    Serial.print(",lapsed:");
+    Serial.print(lapsed);
+    Serial.print(",C1:");
+    Serial.print(currentCharge1);
+    Serial.print(",C2:");
+    Serial.println(currentCharge2);
 
-  EEPROM[dataAddress++] = (mask & 128) | timeCount;
-  EEPROM[dataAddress++] = byte(currentCharge1/500.0 + 0.25);
-  EEPROM[dataAddress++] = byte(currentCharge2/500.0 + 0.25);
-  lastLoggedCharge1 = currentCharge1;
-  lastLoggedCharge2 = currentCharge2;
+    EEPROM[dataAddress++] = (mask & 128) | timeCount;
+    EEPROM[dataAddress++] = byte(currentCharge1/500.0 + 0.25);
+    EEPROM[dataAddress++] = byte(currentCharge2/500.0 + 0.25);
+    lastLoggedCharge1 = currentCharge1;
+    lastLoggedCharge2 = currentCharge2;
+  }
 }
