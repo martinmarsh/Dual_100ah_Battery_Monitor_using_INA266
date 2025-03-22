@@ -100,6 +100,7 @@ int out1Status = 0;
 int reZero = 0;
 long totalCurrent1 = 0;
 long totalCurrent2 = 0;
+int offLoadPeriod = 0;
 
 byte mask = 0;
 unsigned int dataAddress = 3;
@@ -150,6 +151,7 @@ void setup() {
             dataAddress = i - 3;
             mask =  EEPROM[dataAddress] | 127;
             timeCount =  EEPROM[dataAddress++] & 127;
+            lapsed = float(timeCount) * 0.1054;
             currentCharge1 = float(EEPROM[dataAddress++]) * 500.0;
             currentCharge2 = float(EEPROM[dataAddress++]) * 500.0;
             if (currentCharge1 > batteryCapacity){
@@ -188,11 +190,9 @@ void setup() {
   analogWrite(analogOutPin1, 0);
   delay(2000);
   analogWrite(analogOutPin1, 127);
-  averageAnalogue(1, total);
-  offset1Lo = getCurrent(1) - 30;
+  offset1Lo =  getCurrent(1)- 30;
   delay(1000);
   analogWrite(analogOutPin1, 255);
-  averageAnalogue(3, total);
   offset2Lo = getCurrent(2) - 30;
   analogWrite(analogOutPin1, 0);
   delay(1000);
@@ -212,15 +212,14 @@ void loop(){
 
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
-      if ((totalCurrent1 < 270 && totalCurrent1 > -240) || (totalCurrent2 < 270 && totalCurrent2 > -240) ){
-          if ((current1 < 400 && current1 > -400) || (current2 < 400 && current2 > -400) ){
-              offset1Lo = 0;
-              offset1Lo = getCurrent(1) - 30;
-              offset2Lo = 0;
-              offset2Lo = getCurrent(2) - 30;
-          }
+      if ( ((totalCurrent1 < 270 && totalCurrent1 > -240) || (totalCurrent2 < 270 && totalCurrent2 > -240)) && (offLoadPeriod == 0 ) ){
+            offset1Lo = 0;
+            offset1Lo -= totalCurrent1 - 30;
+            offset2Lo = 0;
+            offset2Lo -= totalCurrent2 - 30;
       }
       reZero = 0;
+      --offLoadPeriod;
       timeCount++;
       timeCount &= 127;
       Serial.print("TP: ");
@@ -244,10 +243,6 @@ void loop(){
       }
     }
 
-    averageAnalogue(0, 10);
-    averageAnalogue(1, total);
-    averageAnalogue(2, 10);
-    averageAnalogue(3, total);
     averageAnalogue(4, 20);
  
     current1 = getCurrent(1);
@@ -285,7 +280,12 @@ void loop(){
        current1 = current1*90/100;
        efficiency = 0.92;
     }
-
+    if ((current1 > 600 || current1 < -600) && (current2 > 600 && current2 < -600) ){
+        offLoadPeriod = 1;    // do not reset this period
+    }
+    if ((current1 > 2000 || current1 < -2000) || (current2 > 2000 && current2 < -2000) ){
+      offLoadPeriod = 2;      // skip next period to let batteries balance
+   }
     
     if (currentCharge1 > 1.0 && (current1 > 0 || currentCharge1 < batteryCapacity)){
       currentCharge1 -= ((double) current1 * efficiency * (double) lapsedMillis /3600000.0);
@@ -350,6 +350,8 @@ void loop(){
     // print the results to the Serial Monitor:
     Serial.print("time: ");
     Serial.print(timeCount);
+    Serial.print(",lapsed:");
+    Serial.print(lapsed);
     Serial.print(",B1: ");
     Serial.print(currentCharge1/1000.0);
     Serial.print (",B2: ");
@@ -375,11 +377,11 @@ void averageAnalogue(int indexIn, int total){
     sensorTotal[indexIn] +=  analogRead(analogIn[indexIn]);
     // wait >2 milliseconds before the next loop for the analog-to-digital
     // converter to settle after the last reading:
-    delay(4);
+    delay(8);
     
   }
   sensorTotal[indexIn] = sensorTotal[indexIn]/total;
-  delay(10);
+  delay(100);
 }
 
 long getCurrent(int channel){
