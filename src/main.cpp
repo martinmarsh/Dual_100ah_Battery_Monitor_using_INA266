@@ -212,20 +212,21 @@ void loop(){
 
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
-      if ( ((totalCurrent1 < 270 && totalCurrent1 > -240) || (totalCurrent2 < 270 && totalCurrent2 > -240)) && (offLoadPeriod == 0 ) ){
-            offset1Lo = 0;
+      if ( ((totalCurrent1 < 370 && totalCurrent1 > -340) || (totalCurrent2 < 370 && totalCurrent2 > -340)) && (offLoadPeriod <= 0 ) ){
             offset1Lo -= totalCurrent1 - 30;
-            offset2Lo = 0;
             offset2Lo -= totalCurrent2 - 30;
+            offLoadPeriod = 1;  // will be decremented to 0 later
+            Serial.println("Offset reset in idle");
       }
       reZero = 0;
-      --offLoadPeriod;
       timeCount++;
       timeCount &= 127;
       Serial.print("TP: ");
       Serial.print(timeCount);
       Serial.print(",lapsed:");
       Serial.print(lapsed);
+      Serial.print(",Inuse:");
+      Serial.print(offLoadPeriod);
       Serial.print(",TC1:");
       Serial.print(totalCurrent1);
       Serial.print(",TC2:");
@@ -236,8 +237,8 @@ void loop(){
       Serial.println(offset2Lo);
       totalCurrent1 = 0;
       totalCurrent2 = 0;
- 
-    
+      --offLoadPeriod;
+  
       if (timeCount == 30 || timeCount == 90){
         logCharge();
       }
@@ -280,7 +281,7 @@ void loop(){
        current1 = current1*90/100;
        efficiency = 0.92;
     }
-    if ((current1 > 600 || current1 < -600) && (current2 > 600 && current2 < -600) ){
+    if ((current1 > 800 || current1 < -800) && (current2 > 800 && current2 < -800) ){
         offLoadPeriod = 1;    // do not reset this period
     }
     if ((current1 > 2000 || current1 < -2000) || (current2 > 2000 && current2 < -2000) ){
@@ -352,6 +353,8 @@ void loop(){
     Serial.print(timeCount);
     Serial.print(",lapsed:");
     Serial.print(lapsed);
+    Serial.print(",Inuse:");
+    Serial.print(offLoadPeriod);
     Serial.print(",B1: ");
     Serial.print(currentCharge1/1000.0);
     Serial.print (",B2: ");
