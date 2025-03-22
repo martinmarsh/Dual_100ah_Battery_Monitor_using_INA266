@@ -213,9 +213,8 @@ void loop(){
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
       if ( ((totalCurrent1 < 370 && totalCurrent1 > -340) || (totalCurrent2 < 370 && totalCurrent2 > -340)) && (offLoadPeriod <= 0 ) ){
-            offset1Lo -= totalCurrent1 - 30;
-            offset2Lo -= totalCurrent2 - 30;
-            offLoadPeriod = 1;  // will be decremented to 0 later
+            offset1Lo += totalCurrent1 - 30;
+            offset2Lo += totalCurrent2 - 30;
             Serial.println("Offset reset in idle");
       }
       reZero = 0;
@@ -237,7 +236,9 @@ void loop(){
       Serial.println(offset2Lo);
       totalCurrent1 = 0;
       totalCurrent2 = 0;
-      --offLoadPeriod;
+      if (offLoadPeriod > 0){
+        --offLoadPeriod;
+      }
   
       if (timeCount == 30 || timeCount == 90){
         logCharge();
@@ -281,10 +282,10 @@ void loop(){
        current1 = current1*90/100;
        efficiency = 0.92;
     }
-    if ((current1 > 800 || current1 < -800) && (current2 > 800 && current2 < -800) ){
+    if ((current1 > 400 && current2 > 400) || (current1 < -400 && current2 < -400) ){
         offLoadPeriod = 1;    // do not reset this period
     }
-    if ((current1 > 2000 || current1 < -2000) || (current2 > 2000 && current2 < -2000) ){
+    if ((current1 > 3000 && current2 > 3000) || (current1 < -3000 && current2 < -3000) ){
       offLoadPeriod = 2;      // skip next period to let batteries balance
    }
     
