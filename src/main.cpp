@@ -6,6 +6,7 @@ long scale(long, long);
 void averageAnalogue(int, int);
 long getCurrent(int);
 void logCharge();
+long countToCurrent(int count, float gain);
 
 //addresses for each input defined above
 const int analogIn[] = {A0,A1,A2,A3,A4}; 
@@ -27,49 +28,19 @@ const int analogOutPin1 = 5;  // Analog output pin - direct output
 
 constexpr  int16_t  epromID = 2346;
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
+constexpr float shunt = 0.075;        // mv per 100A
+constexpr float gain2nd = 20.0;       // gain at 2nd stage total from input stages
+constexpr float gain1st = 5.0;        // gain of 1st stage
+
+constexpr int idealCount2nd = 0.016 * gain2nd / 1.077 * 1023.0 + 0.5;  //304
+constexpr float idealCurrentOffset2nd = (float) idealCount2nd * aref / 1023 / gain2nd/ shunt * 100.0;  // 21.34A
+
+constexpr int idealCount1st = 0.016 * gain1st / 1.077 * 1023.0 + 0.5;  // 76
+constexpr float idealCurrentOffset1st = (float) idealCount1st * aref / 1023 / gain1st/ shunt * 100.0;  //21.34A
 
 //calibration voltage measurement
 constexpr float voltBatteryRatio = 0.0445509;
 constexpr long  milliBatteryVoltRange = aref / voltBatteryRatio  * 1000.0;
-
-//calibration shunt measurements
-constexpr float milliVoltOffset1 = 16.15;       //milli volts offsets shunt 1 an 2
-constexpr float milliVoltOffset2 = 16.4;  
-constexpr float sensitivity1 = .65;   // milli volts per amp shunt 1
-constexpr float sensitivity2 = .65;
-
-constexpr float ampsOffset1 = milliVoltOffset1 / sensitivity1;
-constexpr float ampsOffset2 = milliVoltOffset2 / sensitivity2;
-constexpr float firstStageGain = 5.0;  //Both amps are set to this
-constexpr float secondStageGain = 4.0;  //Both amps are set to this
-
-constexpr float ampsFullScale1Hi = ampsOffset1 * aref / milliVoltOffset1 / firstStageGain * 1000.0;
-constexpr float ampsFullScale2Hi = ampsOffset2 * aref / milliVoltOffset2 / firstStageGain * 1000.0;
-
-//Total gain allows about -24A to about 57A 
-constexpr float ampsFullScale1Lo = ampsOffset1 * aref / milliVoltOffset1 / (firstStageGain * secondStageGain) *1000.0;
-constexpr float ampsFullScale2Lo = ampsOffset1 * aref / milliVoltOffset1 / (firstStageGain * secondStageGain) *1000.0;
-
-// Computed values in milliamps to use as long integers with +/- comp for nearest digit to get zero reading
-constexpr long milliAmpsOffset1Hi = ampsOffset1 * 1000.0 - 0;
-constexpr long milliAmpsOffset2Hi = ampsOffset2 * 1000.0 - 0;
-constexpr long milliAmpsOffset1Lo = ampsOffset1 * 1000.0 - 0;
-constexpr long milliAmpsOffset2Lo = ampsOffset2 * 1000.0 - 0;
-
-constexpr long milliAmpsFullScale1Hi = ampsFullScale1Hi * 1000.0;
-constexpr long milliAmpsFullScale2Hi = ampsFullScale2Hi * 1000.0;
-constexpr long milliAmpsFullScale1Lo = ampsFullScale1Lo * 1000.0;
-constexpr long milliAmpsFullScale2LO = ampsFullScale2Lo * 1000.0;
-
-constexpr long max1hi = milliAmpsFullScale1Hi - milliAmpsOffset1Hi;
-constexpr long max1Lo = milliAmpsFullScale1Lo - milliAmpsOffset1Lo;
-constexpr long max2Hi = milliAmpsFullScale2Hi - milliAmpsOffset2Hi;
-constexpr long max2Lo = milliAmpsFullScale2LO - milliAmpsOffset2Lo;
-
-constexpr float count1hi = (float)milliAmpsOffset1Hi/(float)milliAmpsFullScale1Hi * 1023.0;
-constexpr float count1lo = (float)milliAmpsOffset1Lo/(float)milliAmpsFullScale1Lo * 1023.0;
-constexpr float count2hi = (float)milliAmpsOffset2Hi/(float)milliAmpsFullScale2Hi * 1023.0;
-constexpr float count2lo = (float)milliAmpsOffset2Lo/(float)milliAmpsFullScale2LO * 1023.0;
 
 
 unsigned long  currentMillis = 0;
@@ -85,10 +56,8 @@ long batteryVolts = 0;
 long current1;
 long current2;
 
-long offset1Hi = 0;
-long offset1Lo = 0;
-long offset2Hi = 0;
-long offset2Lo = 0;
+long currentOffsetBat1 = 0;
+long currentOffsetBat2 = 0;
 
 long sensorTotal[] = {0, 0, 0, 0, 0};
 int outputValue = 0;  // value output to the PWM (analog out)
@@ -190,10 +159,12 @@ void setup() {
   analogWrite(analogOutPin1, 0);
   delay(2000);
   analogWrite(analogOutPin1, 127);
-  offset1Lo =  getCurrent(1)- 30;
+  currentOffsetBat1 = 0;
+  currentOffsetBat1 =  getCurrent(1)- 30;
   delay(1000);
   analogWrite(analogOutPin1, 255);
-  offset2Lo = getCurrent(2) - 30;
+  currentOffsetBat2 = 0;
+  currentOffsetBat2 = getCurrent(2) - 30;
   analogWrite(analogOutPin1, 0);
   delay(1000);
   
@@ -213,8 +184,8 @@ void loop(){
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
       if ( ((totalCurrent1 < 370 && totalCurrent1 > -340) || (totalCurrent2 < 370 && totalCurrent2 > -340)) && (offLoadPeriod <= 0 ) ){
-            offset1Lo += totalCurrent1 - 30;
-            offset2Lo += totalCurrent2 - 30;
+            currentOffsetBat1 += totalCurrent1 - 30;
+            currentOffsetBat2 += totalCurrent2 - 30;
             Serial.println("Offset reset in idle");
       }
       reZero = 0;
@@ -231,9 +202,9 @@ void loop(){
       Serial.print(",TC2:");
       Serial.print(totalCurrent2);
       Serial.print(",offset1:");
-      Serial.print(offset1Lo);
+      Serial.print(currentOffsetBat1/1000.0);
       Serial.print(",offset2:");
-      Serial.println(offset2Lo);
+      Serial.println(currentOffsetBat2/1000.0);
       totalCurrent1 = 0;
       totalCurrent2 = 0;
       if (offLoadPeriod > 0){
@@ -246,6 +217,8 @@ void loop(){
     }
 
     averageAnalogue(4, 20);
+    averageAnalogue(0, 10);
+    averageAnalogue(2, 10);
  
     current1 = getCurrent(1);
     totalCurrent1 += current1;
@@ -328,21 +301,17 @@ void loop(){
 
     Serial.print("1: ");
     Serial.print(sensorTotal[0]);
-    Serial.print(" = ");
-    Serial.print(offset1Hi);
-    Serial.print(" Low1: ");
+    Serial.print(" -- ");
     Serial.print(sensorTotal[1]);
-    Serial.print(" = ");
-    Serial.println(offset1Lo);
+    Serial.print(" offset ");
+    Serial.println(currentOffsetBat1/1000.0);
 
     Serial.print("2: ");
     Serial.print(sensorTotal[2]);
-    Serial.print(" = ");
-    Serial.print(offset2Hi);
-    Serial.print(" Low2: ");
+    Serial.print(" -- ");
     Serial.print(sensorTotal[3]);
-    Serial.print(" = ");
-    Serial.println(offset2Lo);
+    Serial.print(" offSet ");
+    Serial.println(currentOffsetBat2/1000.0);
 
     Serial.print("Millis: ");
     Serial.print(lapsedMillis);
@@ -361,9 +330,9 @@ void loop(){
     Serial.print (",B2: ");
     Serial.print(currentCharge2/1000.0);
     Serial.print(",C1: ");
-    Serial.print(current1);
+    Serial.print(current1/1000.0);
     Serial.print(",C2: ");
-    Serial.print(current2);
+    Serial.print(current2/1000.0);
     Serial.print(",V: ");
     Serial.println(batteryVolts); 
 }
@@ -388,23 +357,23 @@ void averageAnalogue(int indexIn, int total){
   delay(100);
 }
 
-long getCurrent(int channel){
+long getCurrent(int battery){
   long current;
-  if (channel == 1 ){
+  if (battery == 1 ){
       averageAnalogue(1, total);
       if (sensorTotal[1] < 1022){
-          current = scale(sensorTotal[1], milliAmpsFullScale1Lo) - milliAmpsOffset1Lo - offset1Lo;
+          current = countToCurrent(sensorTotal[1], gain2nd) - currentOffsetBat1;
       } else {
         averageAnalogue(0, total);
-        current = scale(sensorTotal[0], milliAmpsFullScale1Hi) - milliAmpsOffset1Hi;
+        current = countToCurrent(sensorTotal[0], gain1st) - currentOffsetBat1;
       }
   } else {
     averageAnalogue(3, total);
     if (sensorTotal[3] < 1022){
-      current = scale(sensorTotal[3], milliAmpsFullScale2LO) - milliAmpsOffset2Lo - offset2Lo;
+      current = countToCurrent(sensorTotal[3], gain2nd) - currentOffsetBat2;
     } else {
       averageAnalogue(2, total);
-      current = scale(sensorTotal[2], milliAmpsFullScale2Hi) - milliAmpsOffset2Hi;
+      current = countToCurrent(sensorTotal[2], gain1st) - currentOffsetBat2;
     }
   }
   return current;
@@ -434,4 +403,10 @@ void logCharge(){
     lastLoggedCharge1 = currentCharge1;
     lastLoggedCharge2 = currentCharge2;
   }
+}
+
+
+long countToCurrent(int count, float gain){
+  return  (float) count * aref / 1023.0 / gain/ shunt * 100000.0;
+
 }
