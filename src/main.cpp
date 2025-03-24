@@ -6,7 +6,7 @@ long scale(long, long);
 void averageAnalogue(int, int);
 long getCurrent(int);
 void logCharge();
-long countToCurrent(int count, float gain);
+long countToCurrent(int count, float gain, float shunt, float calibration);
 
 //addresses for each input defined above
 const int analogIn[] = {A0,A1,A2,A3,A4}; 
@@ -28,15 +28,20 @@ const int analogOutPin1 = 5;  // Analog output pin - direct output
 
 constexpr  int16_t  epromID = 2346;
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
-constexpr float shunt = 0.075;        // mv per 100A
-constexpr float gain2nd = 20.0;       // gain at 2nd stage total from input stages
+constexpr float shuntBat1 = 0.031;   // mv per 100A equivalent as measured including other factors
+constexpr float shuntBat2 = 0.090;
+constexpr float gain2nd = 15.0;       // gain at 2nd stage total from input stages
 constexpr float gain1st = 5.0;        // gain of 1st stage
+constexpr float calBattery1 = 1.0;   // apply calibration to current conversions
+constexpr float calBattery2 = 1.0;
+constexpr float chargeEfficiency = .90;  // Lipo4 charge efficiency - about of charge actually stored
 
-constexpr int idealCount2nd = 0.016 * gain2nd / 1.077 * 1023.0 + 0.5;  //304
-constexpr float idealCurrentOffset2nd = (float) idealCount2nd * aref / 1023 / gain2nd/ shunt * 100.0;  // 21.34A
+constexpr int idealCount2nd = 0.0166 * gain2nd / 1.077 * 1023.0 + 0.5;  //237
 
-constexpr int idealCount1st = 0.016 * gain1st / 1.077 * 1023.0 + 0.5;  // 76
-constexpr float idealCurrentOffset1st = (float) idealCount1st * aref / 1023 / gain1st/ shunt * 100.0;  //21.34A
+constexpr float idealCurrentOffset2nd = (float) idealCount2nd * aref / 1023 / gain2nd/ shuntBat1 * 100.0;  // 21.34A
+
+constexpr int idealCount1st = 0.0166 * gain1st / 1.077 * 1023.0 + 0.5;  // 76
+constexpr float idealCurrentOffset1st = (float) idealCount1st * aref / 1023 / gain1st/ shuntBat1 * 100.0;  //21.34A
 
 //calibration voltage measurement
 constexpr float voltBatteryRatio = 0.0445509;
@@ -63,7 +68,7 @@ long sensorTotal[] = {0, 0, 0, 0, 0};
 int outputValue = 0;  // value output to the PWM (analog out)
 
 int indexIn;
-int total = 200; //number of reads to average over
+int total = 200; //default number of reads to average over current readings
 
 int out1Status = 0; 
 int reZero = 0;
@@ -74,6 +79,8 @@ int offLoadPeriod = 0;
 byte mask = 0;
 unsigned int dataAddress = 3;
 byte timeCount = 0;
+float lastLapsed = 0;
+double lapsedHrs = 0;
 
 
 void setup() {
@@ -120,7 +127,8 @@ void setup() {
             dataAddress = i - 3;
             mask =  EEPROM[dataAddress] | 127;
             timeCount =  EEPROM[dataAddress++] & 127;
-            lapsed = float(timeCount) * 0.1054;
+            lapsed = float(timeCount) * 0.1;
+            lastLapsed = lapsed;
             currentCharge1 = float(EEPROM[dataAddress++]) * 500.0;
             currentCharge2 = float(EEPROM[dataAddress++]) * 500.0;
             if (currentCharge1 > batteryCapacity){
@@ -128,6 +136,12 @@ void setup() {
             }
             if (currentCharge2 > batteryCapacity){
               currentCharge2 = batteryCapacity;
+            }
+            if (currentCharge1 < 1){
+              currentCharge1 = 0.1;
+            }
+            if (currentCharge2 < 1){
+              currentCharge2 = 0.1;
             }
             lastLoggedCharge1 = currentCharge1;
             lastLoggedCharge2 = currentCharge2;
@@ -160,7 +174,7 @@ void setup() {
   delay(2000);
   analogWrite(analogOutPin1, 127);
   currentOffsetBat1 = 0;
-  currentOffsetBat1 =  getCurrent(1)- 30;
+  currentOffsetBat1 =  getCurrent(1) - 30;
   delay(1000);
   analogWrite(analogOutPin1, 255);
   currentOffsetBat2 = 0;
@@ -175,7 +189,8 @@ void setup() {
 
 void loop(){
   
-    if (reZero > 100){
+    if (reZero > 20){
+      //approx 1.5 x 20 = 30s
       currentMillis = millis();
       lapsedZeroMillis = currentMillis - previousZeroMillis;
       previousZeroMillis = currentMillis;
@@ -189,8 +204,11 @@ void loop(){
             Serial.println("Offset reset in idle");
       }
       reZero = 0;
-      timeCount++;
-      timeCount &= 127;
+      if ((lapsed - lastLapsed) > 0.1){
+        timeCount++;
+        timeCount &= 127;
+        lastLapsed = lapsed;
+      }
       Serial.print("TP: ");
       Serial.print(timeCount);
       Serial.print(",lapsed:");
@@ -241,8 +259,8 @@ void loop(){
     // provided discharge current is not > 2 amps ie high discharge rate.
     
     if (batteryVolts < 12.0){
-      currentCharge1 = 0;
-      currentCharge2  = 0;
+      currentCharge1 = 100.0;
+      currentCharge2  = 100.0;
       logCharge();
     }
     
@@ -250,31 +268,50 @@ void loop(){
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
 
-    double efficiency = 1.0;
-    if (current1 < 0){
-       current1 = current1*90/100;
-       efficiency = 0.92;
-    }
+    //if (current1 < 0){
+       //current1 = current1*90/100;
+    // }
+
     if ((current1 > 400 && current2 > 400) || (current1 < -400 && current2 < -400) ){
-        offLoadPeriod = 1;    // do not reset this period
+        offLoadPeriod = 1;    // do not reset zero after this period ends as average for period will be affected by use
     }
     if ((current1 > 3000 && current2 > 3000) || (current1 < -3000 && current2 < -3000) ){
-      offLoadPeriod = 2;      // skip next period to let batteries balance
-   }
+      offLoadPeriod = 20;      // skip next n periods of approx 30s ie 20 = 10mins to let batteries balance
+    }
+
+    lapsedHrs = (double) lapsedMillis /3600000.0;
     
-    if (currentCharge1 > 1.0 && (current1 > 0 || currentCharge1 < batteryCapacity)){
-      currentCharge1 -= ((double) current1 * efficiency * (double) lapsedMillis /3600000.0);
+    if (current1 < 0 && currentCharge1 < batteryCapacity){
+      // charging
+      currentCharge1 -= ((double) current1 * chargeEfficiency * lapsedHrs);
     }
 
-    efficiency = 1.0;
-    if (current2 < 0){
-      current2 = current2*94/100;
-      efficiency = 0.92;
+    if (current1 > 0 && currentCharge1 > 100.0){
+      //discharging
+      currentCharge1 -= ((double) current1 * lapsedHrs);
+      if (currentCharge1 < 100.0){
+        currentCharge1 = 100.0;
+      }
     }
 
-    if (currentCharge2 > 1.0 && (current2 > 0 || currentCharge2 < batteryCapacity)) {
-      currentCharge2 -= ((double) current2 * efficiency * (double) lapsedMillis /3600000.0);
+  
+    //if (current2 < 0){
+      //current2 = current2*94/100;
+    //}
+
+    if (current2 < 0 && currentCharge2 < batteryCapacity) {
+      // charging
+      currentCharge2 -= ((double) current2 * chargeEfficiency * lapsedHrs);
     }
+
+    if (current2 > 0 && currentCharge2 > 100.0) {
+      // discharging
+      currentCharge2 -= ((double) current2 * lapsedHrs);
+      if (currentCharge2 < 100.0){
+        currentCharge2 = 100.0;
+      }
+    }
+
 
     if (fabs(currentCharge1 - lastLoggedCharge1) > 490.0){
        logCharge();
@@ -334,7 +371,7 @@ void loop(){
     Serial.print(",C2: ");
     Serial.print(current2/1000.0);
     Serial.print(",V: ");
-    Serial.println(batteryVolts); 
+    Serial.println(batteryVolts/1000.0); 
 }
 
 
@@ -350,7 +387,7 @@ void averageAnalogue(int indexIn, int total){
     sensorTotal[indexIn] +=  analogRead(analogIn[indexIn]);
     // wait >2 milliseconds before the next loop for the analog-to-digital
     // converter to settle after the last reading:
-    delay(8);
+    delay(2);
     
   }
   sensorTotal[indexIn] = sensorTotal[indexIn]/total;
@@ -362,18 +399,18 @@ long getCurrent(int battery){
   if (battery == 1 ){
       averageAnalogue(1, total);
       if (sensorTotal[1] < 1022){
-          current = countToCurrent(sensorTotal[1], gain2nd) - currentOffsetBat1;
+          current = countToCurrent(sensorTotal[1], gain2nd, shuntBat1, calBattery1) - currentOffsetBat1;
       } else {
         averageAnalogue(0, total);
-        current = countToCurrent(sensorTotal[0], gain1st) - currentOffsetBat1;
+        current = countToCurrent(sensorTotal[0], gain1st, shuntBat1, calBattery1) - currentOffsetBat1;
       }
   } else {
     averageAnalogue(3, total);
     if (sensorTotal[3] < 1022){
-      current = countToCurrent(sensorTotal[3], gain2nd) - currentOffsetBat2;
+      current = countToCurrent(sensorTotal[3], gain2nd, shuntBat2, calBattery2) - currentOffsetBat2;
     } else {
       averageAnalogue(2, total);
-      current = countToCurrent(sensorTotal[2], gain1st) - currentOffsetBat2;
+      current = countToCurrent(sensorTotal[2], gain1st, shuntBat2, calBattery2) - currentOffsetBat2;
     }
   }
   return current;
@@ -406,7 +443,7 @@ void logCharge(){
 }
 
 
-long countToCurrent(int count, float gain){
-  return  (float) count * aref / 1023.0 / gain/ shunt * 100000.0;
+long countToCurrent(int count, float gain, float shunt, float calibration){
+  return  (float) count * aref / 1023.0 / gain/ shunt * 100000.0 * calibration;
 
 }
