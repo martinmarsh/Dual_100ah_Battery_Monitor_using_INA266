@@ -28,13 +28,13 @@ const int analogOutPin1 = 5;  // Analog output pin - direct output
 
 constexpr  int16_t  epromID = 2346;
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
-constexpr float shuntBat1 = 0.031;   // mv per 100A equivalent as measured including other factors
-constexpr float shuntBat2 = 0.090;
+constexpr float shuntBat1 = 0.054;   // mv per 100A equivalent as measured including other factors
+constexpr float shuntBat2 = 0.0915;
 constexpr float gain2nd = 15.0;       // gain at 2nd stage total from input stages
 constexpr float gain1st = 5.0;        // gain of 1st stage
 constexpr float calBattery1 = 1.0;   // apply calibration to current conversions
 constexpr float calBattery2 = 1.0;
-constexpr float chargeEfficiency = .90;  // Lipo4 charge efficiency - about of charge actually stored
+constexpr float chargeEfficiency = .95;  // Lipo4 charge efficiency - about of charge actually stored
 
 constexpr int idealCount2nd = 0.0166 * gain2nd / 1.077 * 1023.0 + 0.5;  //237
 
@@ -137,11 +137,11 @@ void setup() {
             if (currentCharge2 > batteryCapacity){
               currentCharge2 = batteryCapacity;
             }
-            if (currentCharge1 < 1){
-              currentCharge1 = 0.1;
+            if (currentCharge1 < 100.0){
+              currentCharge1 = 100.0;
             }
-            if (currentCharge2 < 1){
-              currentCharge2 = 0.1;
+            if (currentCharge2 < 100.0){
+              currentCharge2 = 100.0;
             }
             lastLoggedCharge1 = currentCharge1;
             lastLoggedCharge2 = currentCharge2;
@@ -174,11 +174,11 @@ void setup() {
   delay(2000);
   analogWrite(analogOutPin1, 127);
   currentOffsetBat1 = 0;
-  currentOffsetBat1 =  getCurrent(1) - 30;
+  currentOffsetBat1 =  getCurrent(1) - 23;
   delay(1000);
   analogWrite(analogOutPin1, 255);
   currentOffsetBat2 = 0;
-  currentOffsetBat2 = getCurrent(2) - 30;
+  currentOffsetBat2 = getCurrent(2) - 23;
   analogWrite(analogOutPin1, 0);
   delay(1000);
   
@@ -190,7 +190,7 @@ void setup() {
 void loop(){
   
     if (reZero > 20){
-      //approx 1.5 x 20 = 30s
+      //approx 3 x 20 = 60s
       currentMillis = millis();
       lapsedZeroMillis = currentMillis - previousZeroMillis;
       previousZeroMillis = currentMillis;
@@ -199,8 +199,8 @@ void loop(){
       totalCurrent1 /= reZero;
       totalCurrent2 /= reZero;
       if ( ((totalCurrent1 < 370 && totalCurrent1 > -340) || (totalCurrent2 < 370 && totalCurrent2 > -340)) && (offLoadPeriod <= 0 ) ){
-            currentOffsetBat1 += totalCurrent1 - 30;
-            currentOffsetBat2 += totalCurrent2 - 30;
+            currentOffsetBat1 += totalCurrent1 - 23;
+            currentOffsetBat2 += totalCurrent2 - 23;
             Serial.println("Offset reset in idle");
       }
       reZero = 0;
@@ -268,15 +268,15 @@ void loop(){
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
 
-    //if (current1 < 0){
-       //current1 = current1*90/100;
-    // }
+    if (current1 < 0){
+      current1 = (current1*85)/100;
+    }
 
     if ((current1 > 400 && current2 > 400) || (current1 < -400 && current2 < -400) ){
         offLoadPeriod = 1;    // do not reset zero after this period ends as average for period will be affected by use
     }
     if ((current1 > 3000 && current2 > 3000) || (current1 < -3000 && current2 < -3000) ){
-      offLoadPeriod = 20;      // skip next n periods of approx 30s ie 20 = 10mins to let batteries balance
+      offLoadPeriod = 10;      // skip next n periods of approx 60s ie 10 = 10mins to let batteries balance
     }
 
     lapsedHrs = (double) lapsedMillis /3600000.0;
@@ -295,9 +295,9 @@ void loop(){
     }
 
   
-    //if (current2 < 0){
-      //current2 = current2*94/100;
-    //}
+    if (current2 < 0){
+      current2 = (current2*104)/100;
+    }
 
     if (current2 < 0 && currentCharge2 < batteryCapacity) {
       // charging
@@ -387,7 +387,7 @@ void averageAnalogue(int indexIn, int total){
     sensorTotal[indexIn] +=  analogRead(analogIn[indexIn]);
     // wait >2 milliseconds before the next loop for the analog-to-digital
     // converter to settle after the last reading:
-    delay(2);
+    delay(4);
     
   }
   sensorTotal[indexIn] = sensorTotal[indexIn]/total;
