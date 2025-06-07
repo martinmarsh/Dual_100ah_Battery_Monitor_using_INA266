@@ -1,7 +1,15 @@
 *****************************************************************
+* Tracks capacity, voltage and current from 2 100Ahr LiFePO4
+* batteries connected in parallel to form a power bank.
+* Also switches a charge input to control max. charge / max. voltage.
 *
+* Using two INA226 chips and two external shunts the current flow into
+* and out of each battery can be monitorred. Tracking the charge and
+* discharge into each battery is more accurate and can alert to battery
+* mismatch.
+* 
 * Work in progress of changing to use  INA226_M class based on
-* This code is a modified library for the  INA226 Current and Power
+* a modified library for the  INA226 Current and Power
 * Sensor Module originally Written by Wolfgang (Wolle) Ewald
 *
 *
