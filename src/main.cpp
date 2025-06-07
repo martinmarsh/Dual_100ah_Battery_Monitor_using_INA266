@@ -1,5 +1,23 @@
+*****************************************************************
+*
+* Work in progress of changing to use  INA226_M class based on
+* This code is a modified library for the  INA226 Current and Power
+* Sensor Module originally Written by Wolfgang (Wolle) Ewald
+*
+*
+*
+******************************************************************/
+
 #include <Arduino.h>
 #include <EEPROM.h>
+#include <Wire.h>
+#include "ina266_m.h"
+
+constexpr int battery_a_address = 0x40;
+constexpr int battery_b_address = 0x41;
+
+constexpr float shunt_mv = 0.075;
+constexpr float shunt_amps = 100.0;
 
 //function declarations:
 long scale(long, long);
@@ -9,7 +27,7 @@ void logCharge();
 long countToCurrent(int count, float gain, float shunt, float calibration);
 
 //addresses for each input defined above
-const int analogIn[] = {A0,A1,A2,A3,A4}; 
+const int analogIn[] = {A0}; 
 
 //battery capacity in milli-amp hours:
 constexpr double batteryCapacity = 95000.0;
@@ -61,8 +79,6 @@ long batteryVolts = 0;
 long current1;
 long current2;
 
-long currentOffsetBat1 = 0;
-long currentOffsetBat2 = 0;
 
 long sensorTotal[] = {0, 0, 0, 0, 0};
 int outputValue = 0;  // value output to the PWM (analog out)
@@ -83,10 +99,13 @@ float lastLapsed = 0;
 double lapsedHrs = 0;
 
 
+INA226_M battery_a = INA226_M(battery_a_address);
+INA226_M battery_b = INA226_M(battery_b_address);
+
 void setup() {
   // initialize serial communications at 9600 bps:
   Serial.begin(9600);
-  for (indexIn = 0; indexIn < 5; indexIn++) {
+  for (uint16_t indexIn = 0; indexIn < sizeof(analogIn); indexIn++) {
     pinMode(analogIn[indexIn], INPUT); 
   }
   pinMode(analogOutPin1, OUTPUT);
@@ -99,6 +118,38 @@ void setup() {
   digitalWrite(outPin3, HIGH);
 
   analogReference(INTERNAL);
+  Wire.begin();
+
+  if(!battery_a.init()){
+    Serial.println("Failed to init INA226 for battery A. Check your wiring.");
+    while(1){}
+  }
+  if(!battery_b.init()){
+    Serial.println("Failed to init INA226 for battery B. Check your wiring.");
+    while(1){}
+  }
+  Serial.println("init INA226 for battery A and B DONE");
+  Serial.print("A Bus voltage is: ");
+  delay(2000);
+  Serial.println(battery_a.getBusVoltage_V());
+  Serial.print("Shunt A mv is: ");
+  Serial.println(battery_a.getShuntVoltage_mV());
+  Serial.print("B Bus voltage is: ");
+  Serial.println(battery_b.getBusVoltage_V());
+  Serial.print("Shunt B mv is: ");
+  Serial.println(battery_b.getShuntVoltage_mV());
+
+  battery_a.setConversionTime(INA226_CONV_TIME_4156);
+  battery_a.setAverage(INA226_AVERAGE_512);
+  battery_a.setShuntValues(shunt_mv, shunt_amps);
+  
+  battery_b.setConversionTime(INA226_CONV_TIME_4156);
+  battery_b.setAverage(INA226_AVERAGE_512);
+  battery_b.setShuntValues(shunt_mv, shunt_amps);
+
+
+  
+  delay(10000);
 
   analogWrite(analogOutPin1, 0);
   int16_t  x;
@@ -174,11 +225,11 @@ void setup() {
   delay(2000);
   analogWrite(analogOutPin1, 127);
   currentOffsetBat1 = 0;
-  currentOffsetBat1 =  getCurrent(1) - 23;
+  //currentOffsetBat1 =  getCurrent(1) - 23;
   delay(1000);
   analogWrite(analogOutPin1, 255);
   currentOffsetBat2 = 0;
-  currentOffsetBat2 = getCurrent(2) - 23;
+  //currentOffsetBat2 = getCurrent(2) - 23;
   analogWrite(analogOutPin1, 0);
   delay(1000);
   
@@ -234,17 +285,17 @@ void loop(){
       }
     }
 
-    averageAnalogue(4, 20);
+    //averageAnalogue(4, 20);
     averageAnalogue(0, 10);
-    averageAnalogue(2, 10);
+    //averageAnalogue(2, 10);
  
-    current1 = getCurrent(1);
+    //current1 = getCurrent(1);
     totalCurrent1 += current1;
-    current2 = getCurrent(2);
+    //current2 = getCurrent(2);
     totalCurrent2 += current2;
     ++reZero;
   
-    batteryVolts = scale(sensorTotal[4], milliBatteryVoltRange);
+    batteryVolts = scale(sensorTotal[0], milliBatteryVoltRange);
 
     // When battery > 14.1 volts and capacity of battery 1 is less than capacity assume full charge
     // has been reached. 
@@ -338,17 +389,17 @@ void loop(){
 
     Serial.print("1: ");
     Serial.print(sensorTotal[0]);
-    Serial.print(" -- ");
-    Serial.print(sensorTotal[1]);
-    Serial.print(" offset ");
-    Serial.println(currentOffsetBat1/1000.0);
+    //Serial.print(" -- ");
+    //Serial.print(sensorTotal[1]);
+   // Serial.print(" offset ");
+   // Serial.println(currentOffsetBat1/1000.0);
 
-    Serial.print("2: ");
-    Serial.print(sensorTotal[2]);
-    Serial.print(" -- ");
-    Serial.print(sensorTotal[3]);
-    Serial.print(" offSet ");
-    Serial.println(currentOffsetBat2/1000.0);
+   // Serial.print("2: ");
+   // Serial.print(sensorTotal[2]);
+   // Serial.print(" -- ");
+   // Serial.print(sensorTotal[3]);
+   // Serial.print(" offSet ");
+   // Serial.println(currentOffsetBat2/1000.0);
 
     Serial.print("Millis: ");
     Serial.print(lapsedMillis);
@@ -372,6 +423,22 @@ void loop(){
     Serial.print(current2/1000.0);
     Serial.print(",V: ");
     Serial.println(batteryVolts/1000.0); 
+
+    Serial.print("V_A: ");
+    Serial.print(battery_a.getBusVoltage());
+    Serial.print(",Shunt_A_mv: ");
+    Serial.print(battery_a.getShuntVoltage_mV());
+    Serial.print(",V_B: ");
+    Serial.print(battery_b.getBusVoltage());
+    Serial.print(",Shunt_B_mv: ");
+    Serial.println(battery_b.getShuntVoltage_mV());
+
+    Serial.print("Shunt_A_current: ");
+    Serial.print(battery_a.getCurrent());
+    Serial.print(",Shunt_B_current: ");
+    Serial.print(battery_b.getCurrent());
+
+    delay(3000);
 }
 
 
