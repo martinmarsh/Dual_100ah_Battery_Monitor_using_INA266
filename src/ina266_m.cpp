@@ -13,10 +13,6 @@
 * 2) Shunt parameters used to calibrate via setShuntValues - to calibrate
 *    change the max_shunt_voltage (V) at measured max current
 *
-* 3) Functions to support Battery capacity calculation based on current
-*    flow. 
-*
-*
 ******************************************************************/
 
 #include "ina266_m.h"
@@ -224,7 +220,8 @@ void INA226_M::readAndClearFlags(){
 
 uint8_t INA226_M::getI2cErrorCode(){
     return i2cErrorCode;
-}  
+};
+
 
 /************************************************ 
     private functions

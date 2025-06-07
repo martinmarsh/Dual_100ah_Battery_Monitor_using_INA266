@@ -101,7 +101,8 @@
          bool overflow;
          bool convAlert;
          bool limitAlert; 
-         float busVoltageCorrFactor;   
+         float busVoltageCorrFactor;
+
      
      protected:
         TwoWire *_wire;
