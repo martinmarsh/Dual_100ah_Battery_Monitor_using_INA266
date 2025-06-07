@@ -21,13 +21,16 @@ class Battery
         void updateCharge(double lapsedHrs);
         bool logRequired();
         void normaliseCharge();
-
-        float current;
+        float getVoltage();
+        float getCurrent();
+ 
         double charge; 
 
      protected:
         INA226_M ina226;
         double lastLoggedCharge;
+        float current;
+        float voltage;
  };
  
 

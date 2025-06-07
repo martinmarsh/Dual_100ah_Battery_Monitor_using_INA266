@@ -28,6 +28,7 @@ void Battery::chargeLogged(){
 
  void Battery::updateCharge(double lapsedHrs){
     current = ina226.getCurrent();
+    voltage = ina226.getBusVoltage();
     if(current > 0){
         charge += ((double) current * chargeEfficiency * lapsedHrs);
     } else {
@@ -49,5 +50,11 @@ void Battery::normaliseCharge(){
    }
 }
 
+float Battery::getVoltage(){
+    return voltage;
+}
 
+float Battery::getCurrent(){
+    return current;
+}
 

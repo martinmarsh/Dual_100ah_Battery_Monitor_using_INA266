@@ -33,18 +33,18 @@ void logCharge();
 const int analogIn[] = {A0}; 
 
 // Output pins via driver
-const int outPin1 = 9;  // Analog output pin that the LED is attached
-const int outPin2 = 7;
+const int outPin1 = 9;  // Digital output pin that the LED is attached
+const int outPin2 = 7;  // Digital output pin controlling charger input Hi = off
 const int outPin3 = 8;
 // Analogue output pins
 const int analogOutPin1 = 5;  // Analog output pin - direct output 
 
-constexpr  int16_t  epromID = 2346;
+constexpr  int16_t  epromID = 2347;
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
 
 //calibration voltage measurement
 constexpr float voltBatteryRatio = 0.0445509;
-constexpr long  milliBatteryVoltRange = aref / voltBatteryRatio  * 1000.0;
+constexpr long  milliBatteryVoltRange = aref / voltBatteryRatio  * 1047.2;
 
 
 unsigned long  currentMillis = 0;
@@ -52,10 +52,10 @@ unsigned long  previousMillis = 0;
 unsigned long  lapsedMillis = 0;
 unsigned long  previousZeroMillis = 0;
 unsigned long  lapsedZeroMillis = 0;
-double lapsed = 0.0;
+double runHrs = 0.0;
 
 
-long batteryVolts = 0;
+long battery_mV = 0;
 
 long sensorTotal[] = {0};
 int outputValue = 0;  // value output to the PWM (analog out)
@@ -64,12 +64,13 @@ int indexIn;
 int total = 200; //default number of reads to average over current readings
 
 int out1Status = 0; 
+bool charging = false;
 
 
 byte mask = 0;
 unsigned int dataAddress = 3;
 byte timeCount = 0;
-float lastLapsed = 0;
+float lastRunHrs = 0;
 double lapsedHrs = 0;
 
 
@@ -88,7 +89,7 @@ void setup() {
   pinMode(outPin3, OUTPUT);
 
   digitalWrite(outPin1, HIGH);
-  digitalWrite(outPin2, HIGH);
+  digitalWrite(outPin2, HIGH);     // charging starts off
   digitalWrite(outPin3, HIGH);
 
   analogReference(INTERNAL);
@@ -133,8 +134,8 @@ void setup() {
             dataAddress = i - 3;
             mask =  EEPROM[dataAddress] | 127;
             timeCount =  EEPROM[dataAddress++] & 127;
-            lapsed = float(timeCount) * 0.1;
-            lastLapsed = lapsed;
+            runHrs = float(timeCount) * 0.1;
+            lastRunHrs = runHrs;
             battery_a.restoreCharge(double(EEPROM[dataAddress++]) * 0.5);
             battery_b.restoreCharge(double(EEPROM[dataAddress++]) * 0.5);
             break;
@@ -164,11 +165,11 @@ void setup() {
   analogWrite(analogOutPin1, 0);
   delay(2000);
   analogWrite(analogOutPin1, 127);
-  delay(1000);
+  delay(2000);
   analogWrite(analogOutPin1, 255);
-  delay(1000);
+  delay(2000);
   analogWrite(analogOutPin1, 0);
-  
+  charging = false;
   previousMillis = millis();
   previousZeroMillis = previousMillis;
 }
@@ -177,27 +178,48 @@ void setup() {
 void loop(){
   
     averageAnalogue(0, 10);  
-    batteryVolts = scale(sensorTotal[0], milliBatteryVoltRange);
+    battery_mV = scale(sensorTotal[0], milliBatteryVoltRange);
 
     // When battery > 14.1 volts assume full charge
 
-    if (batteryVolts > 14100){
+    if (battery_mV > 14100){
       battery_a.charge = maxCapacity;
       battery_b.charge = maxCapacity;
       logCharge();
+     
+    }
+
+    if (battery_mV > 14500 && charging){
+       digitalWrite(outPin2, HIGH); 
+       charging = False; 
+    }
+
+    if(battery_mV < 14000 && !charging){
+       digitalWrite(outPin2, LOW); 
+       charging = True; 
     }
   
-    if (batteryVolts < 12.0){
+    if (battery_mV < 12000){
       battery_a.charge = 0.1;
       battery_b.charge = 0.1;
       logCharge();
     }
+
     
     currentMillis = millis();
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
-    
     lapsedHrs = (double) lapsedMillis /3600000.0;
+    runHrs += lapsedHrs;
+
+    
+    if ((runHrs - lastRunHrs) > 0.1){
+      timeCount++;
+      timeCount &= 127;
+      lastRunHrs = runHrs;
+    }
+    
+   
     battery_a.updateCharge(lapsedHrs);
     battery_b.updateCharge(lapsedHrs);
 
@@ -205,45 +227,6 @@ void loop(){
       logCharge();
     }
 
-
-
-    /*
-    if (current1 < 0 && currentCharge1 < batteryCapacity){
-      // charging
-      currentCharge1 -= ((double) current1 * chargeEfficiency * lapsedHrs);
-    }
-
-    if (current1 > 0 && currentCharge1 > 100.0){
-      //discharging
-      currentCharge1 -= ((double) current1 * lapsedHrs);
-      if (currentCharge1 < 100.0){
-        currentCharge1 = 100.0;
-      }
-    }
-
-  
-    if (current2 < 0){
-      current2 = (current2*104)/100;
-    }
-
-    if (current2 < 0 && currentCharge2 < batteryCapacity) {
-      // charging
-      currentCharge2 -= ((double) current2 * chargeEfficiency * lapsedHrs);
-    }
-
-    if (current2 > 0 && currentCharge2 > 100.0) {
-      // discharging
-      currentCharge2 -= ((double) current2 * lapsedHrs);
-      if (currentCharge2 < 100.0){
-        currentCharge2 = 100.0;
-      }
-    }
-
-
-    if (fabs(currentCharge1 - lastLoggedCharge1) > 490.0){
-       logCharge();
-    }
-    */
 
     if (out1Status == 0){
       digitalWrite(outPin1, HIGH);
@@ -274,33 +257,22 @@ void loop(){
     // print the results to the Serial Monitor:
     Serial.print("time: ");
     Serial.print(timeCount);
-    Serial.print(",lapsed:");
-    Serial.print(lapsed);
-    Serial.print(",B1: ");
+    Serial.print(",runHrs:");
+    Serial.print(runHrs);
+    Serial.print(",ChargeA: ");
     Serial.print(battery_a.charge);
-    Serial.print (",B2: ");
+    Serial.print (",ChargeB: ");
     Serial.print(battery_b.charge);
-    Serial.print(",C1: ");
-    Serial.print(battery_a.current);
-    Serial.print(",C2: ");
-    Serial.print(battery_b.current);
-    Serial.print(",V: ");
-    Serial.println(batteryVolts/1000.0); 
-
-    /*Serial.print("V_A: ");
-    Serial.print(battery_a.getBusVoltage());
-    Serial.print(",Shunt_A_mv: ");
-    Serial.print(battery_a.getShuntVoltage_mV());
-    Serial.print(",V_B: ");
-    Serial.print(battery_b.getBusVoltage());
-    Serial.print(",Shunt_B_mv: ");
-    Serial.println(battery_b.getShuntVoltage_mV());
-
-    Serial.print("Shunt_A_current: ");
+    Serial.print(",CurrentA: ");
     Serial.print(battery_a.getCurrent());
-    Serial.print(",Shunt_B_current: ");
+    Serial.print(",CurrentB: ");
     Serial.print(battery_b.getCurrent());
-    */
+    Serial.print(",V: ");
+    Serial.print(battery_mV/1000.0);
+    Serial.print(",V_A: ");
+    Serial.print(battery_a.getVoltage()); 
+    Serial.print(",V_B: ");
+    Serial.println(battery_b.getVoltage());  
 
     delay(3000);
 }
@@ -336,8 +308,8 @@ void logCharge(){
     Serial.print(mask);
     Serial.print(",time:");
     Serial.print(timeCount);
-    Serial.print(",lapsed:");
-    Serial.print(lapsed);
+    Serial.print(",runHrs:");
+    Serial.print(runHrs);
     Serial.print(",C1:");
     Serial.print(battery_a.charge);
     Serial.print(",C2:");
