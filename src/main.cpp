@@ -21,11 +21,14 @@
 #include <Wire.h>
 #include "battery.h"
 
-constexpr int battery_a_address = 0x40;
-constexpr int battery_b_address = 0x41;
+constexpr int battery_a_address = 0x41;
+constexpr int battery_b_address = 0x40;
+
+constexpr float battery_a_volt_corr = 0.98519;
+constexpr float battery_b_volt_corr = 1.00075;
 
 //function declarations:
-long scale(long, long);
+float scale(long, float);
 void averageAnalogue(int, int);
 void logCharge();
 
@@ -33,19 +36,22 @@ void logCharge();
 const int analogIn[] = {A0}; 
 
 // Output pins via driver
-const int outPin1 = 9;  // Digital output pin that the LED is attached
-const int outPin2 = 7;  // Digital output pin controlling charger input Hi = off
-const int outPin3 = 8;
+constexpr int outPin1 = 9;  // Digital output pin that the LED is attached
+constexpr int outPin2 = 7;  // Digital output pin controlling charger input Hi = off
+constexpr int outPin3 = 8;
 // Analogue output pins
 const int analogOutPin1 = 5;  // Analog output pin - direct output 
 
-constexpr  int16_t  epromID = 2347;
+constexpr  int16_t  epromID = 2348;
 constexpr float aref = 1.077;         // ref voltage for 1023 full scale conversion
 
 //calibration voltage measurement
 constexpr float voltBatteryRatio = 0.0445509;
-constexpr long  milliBatteryVoltRange = aref / voltBatteryRatio  * 1047.2;
+constexpr float  milliBatteryVoltRange = aref / voltBatteryRatio * 1000.0;
+constexpr uint8_t chargingeOn  = HIGH;
+constexpr uint8_t chargingeOff = LOW;
 
+constexpr int chargePin = outPin2;
 
 unsigned long  currentMillis = 0;
 unsigned long  previousMillis = 0;
@@ -55,7 +61,7 @@ unsigned long  lapsedZeroMillis = 0;
 double runHrs = 0.0;
 
 
-long battery_mV = 0;
+float battery_mV = 0.0;
 
 long sensorTotal[] = {0};
 int outputValue = 0;  // value output to the PWM (analog out)
@@ -70,8 +76,9 @@ bool charging = false;
 byte mask = 0;
 unsigned int dataAddress = 3;
 byte timeCount = 0;
-float lastRunHrs = 0;
-double lapsedHrs = 0;
+float lastRunHrs = 0.0;
+double lapsedHrs = 0.0;
+float lastLoggedHrs = 0.0;
 
 
 Battery battery_a =  Battery();
@@ -88,24 +95,27 @@ void setup() {
   pinMode(outPin2, OUTPUT);
   pinMode(outPin3, OUTPUT);
 
-  digitalWrite(outPin1, HIGH);
-  digitalWrite(outPin2, HIGH);     // charging starts off
+  digitalWrite(outPin1, HIGH);   //default all pins on open collect ic low
+  digitalWrite(outPin2, HIGH);     
   digitalWrite(outPin3, HIGH);
+
+  digitalWrite(chargePin, chargingeOff);  
+  charging = false;
 
   analogReference(INTERNAL);
   Wire.begin();
 
-  if(!battery_a.setUpINA266(battery_a_address)){
+  if(!battery_a.setUpINA266(battery_a_address, battery_a_volt_corr)){
     Serial.println("Failed to init INA226 for battery A. Check your wiring.");
     while(1){}
   }
-  if(!battery_b.setUpINA266(battery_b_address)){
+  if(!battery_b.setUpINA266(battery_b_address, battery_b_volt_corr)){
     Serial.println("Failed to init INA226 for battery B. Check your wiring.");
     while(1){}
   }
   Serial.println("init INA226 for battery A and B DONE"); 
 
-  delay(10000);
+  delay(8000); //8 sec start to enures ina226 stable
 
   analogWrite(analogOutPin1, 0);
   int16_t  x;
@@ -122,8 +132,8 @@ void setup() {
       EEPROM[2] = mask;
       dataAddress = 3;
       timeCount = 0;
-      battery_a.charge = maxCapacity;
-      battery_b.charge = maxCapacity;
+      battery_a.restoreCharge(0.0);  //base it on voltage
+      battery_b.restoreCharge(0.0);
       logCharge();
   } else {
       //need to find last entry where mask changes
@@ -138,10 +148,14 @@ void setup() {
             lastRunHrs = runHrs;
             battery_a.restoreCharge(double(EEPROM[dataAddress++]) * 0.5);
             battery_b.restoreCharge(double(EEPROM[dataAddress++]) * 0.5);
+            logCharge();
             break;
         }
       }
   }
+
+  delay(6000);
+
   for (uint16_t i = 3 ; i < EEPROM.length()-3 ; i+=3) {
     Serial.print("h");
     Serial.print(i/3);
@@ -155,11 +169,13 @@ void setup() {
   }
   Serial.print("Resored values: addr: ");
   Serial.print(dataAddress);
-  Serial.print("time: ");
+  Serial.print(" H");
+  Serial.print((dataAddress-6)/3);
+  Serial.print(": time: ");
   Serial.print(timeCount);
-  Serial.print("c1: ");
+  Serial.print(" ca: ");
   Serial.print(battery_a.charge);
-  Serial.print("c2: ");
+  Serial.print(" cb: ");
   Serial.println(battery_b.charge);
 
   analogWrite(analogOutPin1, 0);
@@ -169,7 +185,7 @@ void setup() {
   analogWrite(analogOutPin1, 255);
   delay(2000);
   analogWrite(analogOutPin1, 0);
-  charging = false;
+  
   previousMillis = millis();
   previousZeroMillis = previousMillis;
 }
@@ -180,27 +196,31 @@ void loop(){
     averageAnalogue(0, 10);  
     battery_mV = scale(sensorTotal[0], milliBatteryVoltRange);
 
-    // When battery > 14.1 volts assume full charge
+    // When either battery > 14.1 volts assume full charge on both batteries
 
-    if (battery_mV > 14100){
+    if (battery_b.getVoltage() > 14.1|| battery_a.getVoltage() > 14.1){
       battery_a.charge = maxCapacity;
       battery_b.charge = maxCapacity;
       logCharge();
      
     }
 
-    if (battery_mV > 14500 && charging){
-       digitalWrite(outPin2, HIGH); 
-       charging = False; 
+    if ((battery_b.getVoltage() >= 14.6 || battery_a.getVoltage() >= 14.6) && charging){
+       digitalWrite(chargePin, chargingeOff); 
+       charging = false; 
     }
 
-    if(battery_mV < 14000 && !charging){
-       digitalWrite(outPin2, LOW); 
-       charging = True; 
+    if((battery_b.getVoltage() < 14.0  || battery_a.getVoltage() < 14.0) && !charging){
+       digitalWrite(chargePin, chargingeOn); 
+       charging = true; 
     }
   
-    if (battery_mV < 12000){
+    if (battery_a.getVoltage() < 12.0){
       battery_a.charge = 0.1;
+      logCharge();
+    }
+
+    if (battery_b.getVoltage() < 12.0){
       battery_b.charge = 0.1;
       logCharge();
     }
@@ -223,7 +243,7 @@ void loop(){
     battery_a.updateCharge(lapsedHrs);
     battery_b.updateCharge(lapsedHrs);
 
-    if(battery_a.logRequired()){
+    if(battery_a.logRequired() || fabs(runHrs - lastLoggedHrs) > 4.0){
       logCharge();
     }
 
@@ -244,11 +264,7 @@ void loop(){
 
     // change the analog out value:
     analogWrite(analogOutPin1, outputValue);
-  
-
-    Serial.print("1: ");
     Serial.print(sensorTotal[0]);
-   
     Serial.print("Millis: ");
     Serial.print(lapsedMillis);
     Serial.print(", Charge: ");
@@ -280,8 +296,8 @@ void loop(){
 
 //functions:
 
-long scale(long reading, long fullScale) {
-  return reading * fullScale / 1023L;
+float scale(long reading, float fullScale) {
+  return float(reading) * fullScale / 1023.0;
 }
 
 void averageAnalogue(int indexIn, int total){
@@ -304,6 +320,12 @@ void logCharge(){
       mask ^= 128;
       EEPROM[2] = mask;
     }
+
+    Serial.print("Logdata: addr: ");
+    Serial.print(dataAddress);
+    Serial.print(" H");
+    Serial.print((dataAddress-3)/3);
+
     Serial.print("log: mask:");
     Serial.print(mask);
     Serial.print(",time:");
@@ -320,5 +342,6 @@ void logCharge(){
     EEPROM[dataAddress++] = byte(battery_b.charge*2 + 0.25);
     battery_a.chargeLogged();
     battery_b.chargeLogged();
+    lastLoggedHrs = runHrs;
   }
 }

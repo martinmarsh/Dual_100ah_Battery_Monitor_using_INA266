@@ -14,7 +14,7 @@ constexpr float chargeEfficiency = .95;  // Lipo4 charge efficiency - amount of 
 class Battery
 {
     public:   
-        bool setUpINA266(const int address);
+        bool setUpINA266(const int address, const float busCorrFactor);
         void restoreCharge(double new_charge);
         bool isLogRequired();
         void chargeLogged();
