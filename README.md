@@ -5,7 +5,7 @@ Sensor Module originally Written by Wolfgang (Wolle) Ewald
 This code is intended to run on an arduino UNO 3 connected to two
 using two INA226 chips each connected to an external 100A 75mv shunts.
 
-This is part of a project to construct a 2.4 KW 13v power bank using
+This is part of a project to construct a 2.4 KWh 13v power bank using
 two 100 Ahr LIFePO4 batteries and a 3 KW pure sin wave inverter for
 240v loads.
 
