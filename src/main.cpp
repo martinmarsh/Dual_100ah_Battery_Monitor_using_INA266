@@ -198,14 +198,14 @@ void loop(){
 
     // When either battery > 14.1 volts assume full charge on both batteries
 
-    if (battery_b.getVoltage() > 13.8 || battery_a.getVoltage() > 13.8){
+    if (battery_b.getVoltage() > 13.7 || battery_a.getVoltage() > 13.7){
       battery_a.charge = maxCapacity;
       battery_b.charge = maxCapacity;
       logCharge();
      
     }
 
-    if ((battery_b.getVoltage() >= 14.5 || battery_a.getVoltage() >= 14.5) && charging){
+    if ((battery_b.getVoltage() >= 13.9 || battery_a.getVoltage() >= 13.9) && charging){
        digitalWrite(chargePin, chargingeOff); 
        charging = false; 
     }
