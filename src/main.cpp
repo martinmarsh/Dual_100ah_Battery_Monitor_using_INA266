@@ -28,6 +28,7 @@ constexpr float battery_a_volt_corr = 0.98519;
 constexpr float battery_b_volt_corr = 1.00075;
 
 //function declarations:
+float getBatteryVolts();
 float scale(long, float);
 void averageAnalogue(int, int);
 void logCharge();
@@ -114,10 +115,19 @@ void setup() {
     while(1){}
   }
   Serial.println("init INA226 for battery A and B DONE"); 
-
-  delay(8000); //8 sec start to enures ina226 stable
-
   analogWrite(analogOutPin1, 0);
+
+  delay(8000); //16 sec start to enures ina226 stable
+  battery_a.update();
+  battery_b.update();
+  Serial.print("Battery voltage:");
+  Serial.println(getBatteryVolts());
+  delay(8000); //wait 8 sec start to enures ina226 stable
+  battery_a.update();
+  battery_b.update();
+
+  float currentVolts = getBatteryVolts();
+
   int16_t  x;
   EEPROM.get(0, x);
   if ( x != epromID){
@@ -132,8 +142,9 @@ void setup() {
       EEPROM[2] = mask;
       dataAddress = 3;
       timeCount = 0;
-      battery_a.restoreCharge(0.0);  //base it on voltage
-      battery_b.restoreCharge(0.0);
+
+      battery_a.restoreCharge(0.0, currentVolts);  //base it on voltage
+      battery_b.restoreCharge(0.0, currentVolts);
       logCharge();
   } else {
       //need to find last entry where mask changes
@@ -146,8 +157,8 @@ void setup() {
             timeCount =  EEPROM[dataAddress++] & 127;
             runHrs = float(timeCount) * 0.1;
             lastRunHrs = runHrs;
-            battery_a.restoreCharge(double(EEPROM[dataAddress++]) * 0.5);
-            battery_b.restoreCharge(double(EEPROM[dataAddress++]) * 0.5);
+            battery_a.restoreCharge(double(EEPROM[dataAddress++]) * 0.5, currentVolts);
+            battery_b.restoreCharge(double(EEPROM[dataAddress++]) * 0.5, currentVolts);
             logCharge();
             break;
         }
@@ -196,36 +207,30 @@ void loop(){
     averageAnalogue(0, 10);  
     battery_mV = scale(sensorTotal[0], milliBatteryVoltRange);
 
-    // When either battery > 14.1 volts assume full charge on both batteries
+    // When either battery > 13.7 volts assume full charge on both batteries
 
-    if (battery_b.getVoltage() > 13.7 || battery_a.getVoltage() > 13.7){
+    if (getBatteryVolts() > 13.7){
       battery_a.charge = maxCapacity;
       battery_b.charge = maxCapacity;
       logCharge();
-     
     }
 
-    if ((battery_b.getVoltage() >= 13.9 || battery_a.getVoltage() >= 13.9) && charging){
+    if (getBatteryVolts() >= 13.8 && charging){
        digitalWrite(chargePin, chargingeOff); 
        charging = false; 
     }
 
-    if((battery_b.getVoltage() < 13.4  || battery_a.getVoltage() < 13.4) && !charging){
+    if(getBatteryVolts() < 13.4 && !charging){
        digitalWrite(chargePin, chargingeOn); 
        charging = true; 
     }
   
-    if (battery_a.getVoltage() < 12.0){
+    if (getBatteryVolts() < 12.0){
       battery_a.charge = 0.1;
-      logCharge();
-    }
-
-    if (battery_b.getVoltage() < 12.0){
       battery_b.charge = 0.1;
       logCharge();
     }
-
-    
+   
     currentMillis = millis();
     lapsedMillis = currentMillis - previousMillis;
     previousMillis = currentMillis;
@@ -259,8 +264,13 @@ void loop(){
       digitalWrite(outPin1, LOW);
       // map it to analog out:
       outputValue = (battery_b.charge/maxCapacity) * 255;
-
+      // ensure capacity mismatch does not exceed 20% difference
+      if (fabs(battery_a.charge-battery_b.charge)/maxCapacity > 0.2){
+          battery_a.charge = (battery_a.charge+battery_b.charge)/2.0;
+          battery_b.charge = battery_a.charge;
+      }
     }
+
 
     // change the analog out value:
     analogWrite(analogOutPin1, outputValue);
@@ -288,13 +298,17 @@ void loop(){
     Serial.print(",V_A: ");
     Serial.print(battery_a.getVoltage()); 
     Serial.print(",V_B: ");
-    Serial.println(battery_b.getVoltage());  
-
+    Serial.print(battery_b.getVoltage()); 
+    Serial.print(",V_av: ");
+    Serial.println(getBatteryVolts()); 
     delay(3000);
 }
 
 
 //functions:
+float getBatteryVolts(){
+  return (battery_a.getVoltage()+battery_b.getVoltage())/2;
+}
 
 float scale(long reading, float fullScale) {
   return float(reading) * fullScale / 1023.0;
